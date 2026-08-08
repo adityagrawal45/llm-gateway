@@ -8,7 +8,9 @@ A production-style API gateway that sits in front of multiple LLM providers
 - Automatic provider fallback (e.g. OpenAI -> Anthropic -> Ollama on failure)
 - Full observability: OpenTelemetry traces -> Prometheus metrics -> Grafana dashboards
 
-> **Status:** Phase 0 — project scaffolding only. No gateway/routing logic yet.
+> **Status:** Phase 1 — request routing + provider abstraction. Rate
+> limiting, budget enforcement, and provider fallback are not implemented
+> yet.
 
 ## Project layout
 
@@ -17,7 +19,8 @@ llm-gateway/
 ├── src/llm_gateway/       # application package (src layout)
 │   ├── main.py            # FastAPI app factory + entrypoint
 │   ├── config/             # YAML config schema + hot-reload loader
-│   └── api/                # HTTP routes (health check for now)
+│   ├── api/                 # HTTP routes: health, auth dependency, chat completions
+│   └── providers/           # ProviderClient abstraction: OpenAI, Anthropic, Ollama
 ├── config/
 │   └── config.yaml         # runtime config: teams, models, limits, budgets
 ├── tests/                  # pytest suite
@@ -29,6 +32,22 @@ llm-gateway/
 ├── pyproject.toml
 └── .env.example
 ```
+
+## Trying the chat completions endpoint
+
+Provider calls are mocked by default (`LLM_GATEWAY_MOCK_PROVIDERS=true`), so
+this works with no provider API keys:
+
+```bash
+curl -s http://localhost:8000/v1/chat/completions \
+  -H "Authorization: Bearer team-platform-eng-devkey-001" \
+  -H "Content-Type: application/json" \
+  -d '{"model": "gpt-4o", "messages": [{"role": "user", "content": "hello"}]}'
+```
+
+Set `LLM_GATEWAY_MOCK_PROVIDERS=false` and the relevant provider API key
+(`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`) or `OLLAMA_BASE_URL` to hit a real
+provider instead.
 
 ## Requirements
 
@@ -77,7 +96,7 @@ pytest
 ## Roadmap
 
 - [x] **Phase 0** — Project scaffolding, config loader, Docker Compose stub, smoke test
-- [ ] **Phase 1** — TBD (routing, request/response models)
+- [x] **Phase 1** — Request routing, provider abstraction (OpenAI/Anthropic/Ollama), auth, `POST /v1/chat/completions`
 - [ ] **Phase 2** — Rate limiting (Redis token bucket / sliding window)
 - [ ] **Phase 3** — Budget enforcement
 - [ ] **Phase 4** — Provider fallback logic
