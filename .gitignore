@@ -13,6 +13,8 @@ htmlcov/
 
 .env
 *.log
+.CONTEXT.md
+.documentation.md
 
 .idea/
 .vscode/
