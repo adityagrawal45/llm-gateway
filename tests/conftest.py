@@ -11,6 +11,11 @@ from fastapi.testclient import TestClient
 REPO_ROOT = Path(__file__).resolve().parent.parent
 os.environ.setdefault("CONFIG_PATH", str(REPO_ROOT / "config" / "config.yaml"))
 
+# Providers read this at import time too (see providers/*_provider.py) --
+# keep tests hermetic and off the network regardless of the developer's
+# local .env.
+os.environ.setdefault("LLM_GATEWAY_MOCK_PROVIDERS", "true")
+
 
 @pytest.fixture()
 def client() -> TestClient:
