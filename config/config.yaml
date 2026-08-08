@@ -1,0 +1,48 @@
+# Runtime config for the gateway, validated against
+# src/llm_gateway/config/schema.py::GatewayConfig on load and on every
+# hot-reload. Edit this file while the app is running (Docker or local
+# uvicorn --reload) and the change takes effect within a second or two,
+# with no restart.
+version: 1
+
+teams:
+  - name: platform-eng
+    api_key: "team-platform-eng-devkey-001"
+    allowed_providers: [openai, anthropic]
+    allowed_models:
+      - gpt-4o
+      - claude-sonnet-4-6
+    rate_limit:
+      requests_per_minute: 300
+      tokens_per_minute: 200000
+      burst: 50
+    budget:
+      daily_usd: 100
+      monthly_usd: 2000
+
+  - name: data-science
+    api_key: "team-data-science-devkey-002"
+    allowed_providers: [anthropic, ollama]
+    allowed_models:
+      - claude-sonnet-4-6
+      - llama3
+    rate_limit:
+      requests_per_minute: 120
+      tokens_per_minute: 80000
+      burst: 20
+    budget:
+      daily_usd: 40
+      monthly_usd: 600
+
+  - name: sandbox
+    api_key: "team-sandbox-devkey-003"
+    allowed_providers: [ollama]
+    allowed_models:
+      - llama3
+    rate_limit:
+      requests_per_minute: 30
+      tokens_per_minute: 20000
+      burst: 0
+    budget:
+      daily_usd: 5
+      monthly_usd: 50

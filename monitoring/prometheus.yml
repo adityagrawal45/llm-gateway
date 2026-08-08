@@ -1,0 +1,10 @@
+# Minimal scrape config. The gateway doesn't expose /metrics yet (that's a
+# later phase) -- this is here so the compose stack is wired end-to-end and
+# ready for it.
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: "llm-gateway"
+    static_configs:
+      - targets: ["gateway:8000"]

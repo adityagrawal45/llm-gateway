@@ -1,0 +1,74 @@
+services:
+  gateway:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      CONFIG_PATH: /app/config/config.yaml
+      REDIS_URL: redis://redis:6379/0
+      LOG_LEVEL: INFO
+    volumes:
+      # Mount config read-write from the host so hot reload can be exercised
+      # by editing config/config.yaml locally while the container runs.
+      - ./config:/app/config
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    depends_on:
+      - gateway
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
+  # --- Provider mocks -----------------------------------------------------
+  # Real OpenAI/Anthropic/Ollama calls come in a later phase. For now these
+  # are placeholders so the compose topology (and env vars referencing them)
+  # already exists. `ollama-mock` shows the pattern; wire up openai-mock /
+  # anthropic-mock the same way once we get to fallback logic, or point
+  # OLLAMA_BASE_URL / OPENAI_API_KEY / ANTHROPIC_API_KEY at real providers.
+  #
+  # ollama-mock:
+  #   image: python:3.11-slim
+  #   command: python -m http.server 11434
+  #   ports:
+  #     - "11434:11434"
+
+volumes:
+  redis-data:
+  prometheus-data:
+  grafana-data:
