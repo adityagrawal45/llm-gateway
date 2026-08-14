@@ -3,9 +3,10 @@ FastAPI application entrypoint.
 
 Phase 0 scope: app boots, loads + hot-reloads config, exposes /healthz.
 Phase 1 scope: provider abstraction + POST /v1/chat/completions, routed and
-auth-checked against the loaded config. Rate limiting, budgets, provider
-fallback, and telemetry export wiring still don't exist -- those land in
-later phases.
+auth-checked against the loaded config. Phase 2 scope: per-team Redis-backed
+rate limiting (see rate_limit/limiter.py) wired in here via a shared
+redis.asyncio connection built once at startup. Budgets, provider fallback,
+and telemetry export wiring still don't exist -- those land in later phases.
 """
 
 from __future__ import annotations
@@ -21,6 +22,8 @@ from llm_gateway.api.chat import router as chat_router
 from llm_gateway.api.health import router as health_router
 from llm_gateway.config.loader import ConfigError, ConfigLoader
 from llm_gateway.providers.registry import build_registry
+from llm_gateway.rate_limit.limiter import RateLimiter
+from llm_gateway.redis_client import RedisUnavailableError, build_redis_client, verify_connection
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
@@ -47,11 +50,25 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # not re-created per call.
     app.state.provider_registry = build_registry()
 
+    # Rate limiting (Phase 2) has no correct fallback if Redis is unreachable --
+    # fail startup loudly here, the same way a bad config load already does,
+    # instead of booting into a state where limits silently don't work.
+    redis_client = build_redis_client()
+    try:
+        await verify_connection(redis_client)
+    except RedisUnavailableError as exc:
+        logger.error("startup Redis check failed: %s", exc)
+        await redis_client.aclose()
+        raise
+    app.state.redis_client = redis_client
+    app.state.rate_limiter = RateLimiter(redis_client)
+
     logger.info("llm-gateway started")
 
     yield
 
     await loader.stop_watching()
+    await redis_client.aclose()
     logger.info("llm-gateway stopped")
 
 
