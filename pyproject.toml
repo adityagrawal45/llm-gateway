@@ -29,6 +29,7 @@ dev = [
     "pytest-cov>=5.0.0",
     "ruff>=0.6.0",
     "mypy>=1.11.0",
+    "fakeredis[lua]>=2.24.0",  # [lua] pulls in lupa, needed for EVAL/EVALSHA support
 ]
 
 [build-system]
@@ -41,6 +42,10 @@ where = ["src"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "redis: integration tests that require a real Redis instance (run with `pytest -m redis`); excluded from the default run.",
+]
+addopts = "-m 'not redis'"
 
 [tool.ruff]
 line-length = 100
