@@ -52,12 +52,16 @@ either direction anyway.
 Instead: pre-call, read (don't increment) the window's token counter and
 reject only if it's already at/over the limit from *prior* requests this
 window; post-call (api/chat.py, after a successful provider response),
-increment by the actual usage. Consequence, documented rather than hidden:
-a team can overshoot tokens/minute by up to one in-flight request's worth
-of tokens before the limiter catches it on the request *after* that one.
-This is judged an acceptable trade-off against the complexity/failure-mode
-cost of reservation, given the repo's current constraints (no estimator,
-optional/nullable max_tokens on the request).
+increment by the actual usage via the shared INCRBY_AND_EXPIRE_SCRIPT
+(redis_lua.py -- also used by budget/tracker.py's spend recording, so
+there's one atomic-increment implementation in the codebase, not two).
+Consequence, documented rather than hidden: a team can overshoot
+tokens/minute by up to one in-flight request's worth of tokens before the
+limiter catches it on the request *after* that one. This is judged an
+acceptable trade-off against the complexity/failure-mode cost of
+reservation, given the repo's current constraints (no estimator,
+optional/nullable max_tokens on the request). budget/tracker.py makes the
+same call for the same reason -- see its module docstring.
 
 ## Hot reload
 
@@ -78,6 +82,8 @@ import time
 from dataclasses import dataclass
 
 import redis.asyncio as redis
+
+from llm_gateway.redis_lua import INCRBY_AND_EXPIRE_SCRIPT
 
 WINDOW_SECONDS = 60
 
@@ -102,23 +108,12 @@ local ttl = redis.call('TTL', KEYS[1])
 return {current, ttl}
 """
 
-# KEYS[1] = token counter key for this team+window
-# ARGV[1] = amount to add
-# ARGV[2] = window TTL in seconds
-#
-# Post-call write only -- record_tokens() has no reject decision riding on
-# it (the reject decision already happened pre-call via check_tokens()'s
-# read), so there's no race to close here and a plain INCRBY does fine.
-# Note: unlike the requests script, this resets the TTL on *every* call
-# within the window (not just the first), which means the key's actual
-# expiry drifts to last-write + TTL rather than window_start + TTL -- a
-# minor imprecision, not a correctness bug, since window bucketing is done
-# by `window_start` in the key itself, not by TTL.
-INCRBY_SCRIPT = """
-local current = redis.call('INCRBY', KEYS[1], ARGV[1])
-redis.call('EXPIRE', KEYS[1], ARGV[2])
-return current
-"""
+# Post-call write only for the tokens/minute counter -- record_tokens() has
+# no reject decision riding on it (that already happened pre-call via
+# check_tokens()'s read), so there's no check-then-write race to close here.
+# Shared with budget/tracker.py's spend recording -- see redis_lua.py for
+# why this is factored out rather than redefined per module.
+INCRBY_SCRIPT = INCRBY_AND_EXPIRE_SCRIPT
 
 
 def _window_start(now: float | None = None) -> int:
