@@ -8,9 +8,9 @@ A production-style API gateway that sits in front of multiple LLM providers
 - Automatic provider fallback (e.g. OpenAI -> Anthropic -> Ollama on failure)
 - Full observability: OpenTelemetry traces -> Prometheus metrics -> Grafana dashboards
 
-> **Status:** Phase 3 — request routing + provider abstraction + per-team
-> Redis-backed rate limiting + per-team budget enforcement. Provider
-> fallback is not implemented yet.
+> **Status:** Phase 4 — request routing + provider abstraction + per-team
+> Redis-backed rate limiting + per-team budget enforcement + automatic
+> provider fallback.
 
 ## Project layout
 
@@ -123,6 +123,20 @@ for self-monitoring. Like rate limits, budget changes in `config.yaml` take
 effect on the next request via hot-reload; already-accumulated spend for a
 window is kept as-is when a limit changes mid-window.
 
+## Provider fallback
+
+For a given request, `POST /v1/chat/completions` walks the calling team's
+`allowed_providers` in the order configured in `config.yaml` and tries every
+one whose `ProviderClient` claims to support the requested model, in that
+order — see `src/llm_gateway/api/chat.py`. The first successful response
+wins; a provider that raises `ProviderError` (network error, non-2xx,
+unparseable response) is skipped in favor of the next candidate instead of
+failing the request immediately. Only tokens/spend from the provider that
+actually served the request are recorded. If every candidate fails, the
+route returns `502 Bad Gateway` with each provider's failure reason
+included. A team allowed only one provider for a model gets no fallback,
+same behavior as before Phase 4.
+
 ## Tests
 
 ```bash
@@ -144,5 +158,5 @@ pytest -m redis
 - [x] **Phase 1** — Request routing, provider abstraction (OpenAI/Anthropic/Ollama), auth, `POST /v1/chat/completions`
 - [x] **Phase 2** — Rate limiting (Redis-backed sliding-window counters, per-team requests/min + tokens/min)
 - [x] **Phase 3** — Budget enforcement (per-model USD pricing, Redis-backed daily/monthly spend tracking, `GET /v1/teams/{team}/budget`)
-- [ ] **Phase 4** — Provider fallback logic
+- [x] **Phase 4** — Provider fallback logic (retry the next allowed provider on failure, first success wins, 502 only if all fail)
 - [ ] **Phase 5** — OpenTelemetry instrumentation + Prometheus metrics + Grafana dashboards
