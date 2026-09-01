@@ -10,19 +10,24 @@ multiple LLM providers (OpenAI, Anthropic, Ollama) for multiple internal
 "teams" (tenants), adding rate limiting, budget caps, provider fallback, and
 observability on top of raw provider APIs.
 
-## Current status: Phase 1 — request routing + provider abstraction
+## Current status: Phase 4 — provider fallback
 
 Phase 0 (config loading/hot-reload, `/healthz`) is done and unchanged. Phase
-1 adds the actual gateway route on top of it:
+1 adds the actual gateway route on top of it; Phase 2/3 add rate limiting
+and budget enforcement (see below); Phase 4 adds provider fallback:
 
 - `POST /v1/chat/completions` — a provider-agnostic chat completion
   endpoint. Auth via `Authorization: Bearer <team_api_key>` or
   `X-API-Key: <team_api_key>`, resolved against
   `GatewayConfig.team_by_api_key()`. Validates the requested model is in
-  the calling team's `allowed_models`, picks the first of the team's
-  `allowed_providers` (in configured order) whose `ProviderClient` claims
-  to support that model, and calls it. No retries or fallback if that call
-  fails — it returns a `502`.
+  the calling team's `allowed_models`, then walks **every** one of the
+  team's `allowed_providers` (in configured order) whose `ProviderClient`
+  claims to support that model and tries them in turn — first success
+  wins. A provider that raises `ProviderError` is skipped in favor of the
+  next candidate instead of failing the request immediately; only if every
+  candidate fails does the route return `502`, with each provider's
+  failure reason included (`api/chat.py::_select_providers` +
+  `create_chat_completion`).
 - A `ProviderClient` abstraction (`src/llm_gateway/providers/`) with three
   implementations (`OpenAIProvider`, `AnthropicProvider`, `OllamaProvider`),
   each translating the gateway's own `ChatCompletionRequest`/
@@ -39,10 +44,13 @@ Phase 0 (config loading/hot-reload, `/healthz`) is done and unchanged. Phase
   once at startup (in `main.py`'s `lifespan`) and stores them on
   `app.state.provider_registry` — never rebuilt per-request.
 
-Still **not implemented**: rate limiting, budget enforcement, provider
-fallback, and OTel/Prometheus/Grafana instrumentation. Redis and the
-observability stack in `docker-compose.yml` remain unused by app code.
-Don't assume those exist when reading code.
+Rate limiting (Phase 2), budget enforcement (Phase 3), and provider fallback
+(Phase 4) are all implemented — see `src/llm_gateway/rate_limit/`,
+`src/llm_gateway/budget/`, and `api/chat.py`. Still **not implemented**:
+OTel/Prometheus/Grafana instrumentation. Prometheus/Grafana in
+`docker-compose.yml` remain unused by app code (Redis is now used, by rate
+limiting and budget tracking). Don't assume the observability stack exists
+when reading code.
 
 ## Repo layout
 
@@ -103,18 +111,18 @@ llm-gateway/
 ## Roadmap (from README)
 
 1. ~~Phase 1 — routing / request-response models (the actual proxy logic)~~ done
-2. Phase 2 — Redis-backed rate limiting
-3. Phase 3 — budget enforcement
-4. Phase 4 — provider fallback logic
+2. ~~Phase 2 — Redis-backed rate limiting~~ done
+3. ~~Phase 3 — budget enforcement~~ done
+4. ~~Phase 4 — provider fallback logic~~ done
 5. Phase 5 — OpenTelemetry + Prometheus + Grafana instrumentation
 
-When implementing any of these, the config schema (`schema.py`) already has
-the fields (`rate_limit`, `budget`, `allowed_providers`, `allowed_models`)
-designed in — the job is wiring behavior to data that already validates.
-Phase 4 in particular can build directly on `chat.py::_select_provider`,
-which already walks `team.allowed_providers` in order looking for a match —
-today it stops at (and calls) the first match; fallback is "on
-`ProviderError`, keep walking instead of stopping."
+When implementing Phase 5, the OTel/Prometheus deps are already in
+`pyproject.toml` and Prometheus/Grafana are already provisioned in
+`docker-compose.yml` / `monitoring/`; the job is wiring
+`opentelemetry-instrumentation-fastapi` into `create_app()` and adding a
+`/metrics` endpoint. `ChatCompletionResponse` already carries `usage` and
+`provider`, which is most of what a per-provider request/token/cost metric
+needs.
 
 ## Non-obvious gotchas
 
@@ -123,9 +131,17 @@ today it stops at (and calls) the first match; fallback is "on
   while the container runs.
 - Provider mocks (`ollama-mock` etc.) are commented out in
   `docker-compose.yml` — intentionally not active yet, left as a pattern to
-  copy when fallback logic lands. This is a different thing from
+  copy for testing fallback against real network failures rather than a
+  `ProviderError` raised in-process. This is a different thing from
   `LLM_GATEWAY_MOCK_PROVIDERS`, which mocks provider *responses* inside the
   app itself and is on by default.
+- Fallback (Phase 4) only retries across the providers a *team* is allowed
+  to use for that model (`TeamConfig.allowed_providers`) — it never widens
+  scope to a provider the team isn't configured for, even if that provider
+  could serve the model. Only tokens/spend from whichever provider actually
+  served the request get recorded; failed attempts consume no budget/token
+  credit (the request-count credit from `enforce_rate_limit` is still
+  charged once, pre-call, regardless of how many providers it takes).
 - `GatewayConfig.team_by_api_key()` is now actually used, by
   `api/auth.py::require_team`.
 - Each provider's `_MOCK` flag is read from the env once at **module import
