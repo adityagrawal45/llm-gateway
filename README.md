@@ -8,7 +8,7 @@ A production-style API gateway that sits in front of multiple LLM providers
 - Automatic provider fallback (e.g. OpenAI -> Anthropic -> Ollama on failure)
 - Full observability: OpenTelemetry traces -> Prometheus metrics -> Grafana dashboards
 
-> **Status:** Phase 4 — request routing + provider abstraction + per-team
+> **Status:** Phase 4 request routing + provider abstraction + per-team
 > Redis-backed rate limiting + per-team budget enforcement + automatic
 > provider fallback.
 
