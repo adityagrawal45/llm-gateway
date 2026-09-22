@@ -73,7 +73,7 @@ The app boots on `http://localhost:8000`. Health check: `GET /healthz`.
 ## Running the full stack
 
 ```bash
-docker compose up --buil
+docker compose up --build
 ```
 
 | Service     | URL                          |
