@@ -8,7 +8,7 @@ effect on the very next request (see "Hot reload" note below).
 ## Algorithm: fixed 60s window counter, not token-bucket
 
 Each check is scoped to a window key of `floor(now / 60)`. This needs only
-an atomic increment-with-TTL per window, which is cheaper (one key, one
+an atomic increment-with-TTL per window, which is cheaper (one key, one 
 round trip) and maps more directly to "N requests per minute" than a
 token-bucket's persisted refill-rate/fractional-tokens state would.
 
