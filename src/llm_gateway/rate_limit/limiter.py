@@ -1,6 +1,6 @@
 """
 Redis-backed per-team rate limiter, enforced along two dimensions:
-requests/minute and tokens/minute, both read from TeamConfig.rate_limit
+requests/minute and tokens/minute, both read from TeamConfig.rate_limit 
 (config/schema.py) fresh on every check -- there is no cached copy of the
 limit here, only per-call arguments, so a hot-reloaded config change takes
 effect on the very next request (see "Hot reload" note below).
